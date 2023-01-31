@@ -1,37 +1,26 @@
-import os
 import requests
 import json
 import time
 from datetime import datetime, timedelta
-import urllib
 from selenium import webdriver
 from authlib.integrations.requests_client import OAuth2Session, OAuth2Auth
-import inspect
-import asyncio
-from enum import Enum
-from collections import defaultdict, deque
-import copy
 
 class TDClient:
     '''
     
     '''
     
-    def __init__(self):
+    def __init__(self, creds_path):
         # Set token endpoint (for authentication requests)
         self.token_endpoint = 'https://api.tdameritrade.com/v1/oauth2/token'
         
         # Get credentials and token objects
-        self.credentials_path = os.path.join(
-            os.path.expanduser('~'), 'bakery/td_ameritrade/creds.json'
-        )
-        self.token_path = os.path.join(
-            os.path.expanduser('~'), 'bakery/td_ameritrade/tokens.json'
-        )
+        self.credentials_path = creds_path
+
         with open(self.credentials_path, 'rb') as f:
-            self.credentials = json.loads(f.read().decode())
-        with open(self.token_path, 'rb') as f:
-            self.token = json.loads(f.read().decode())
+            bakery_credentials = json.loads(f.read().decode())
+            self.credentials = bakery_credentials['td']['creds']
+            self.token = bakery_credentials['td']['tokens']
             
         # Set refresh token expired indicator
         self.is_refresh_token_expired = (datetime.fromtimestamp(self.token['expires_at']) \
@@ -130,9 +119,12 @@ class TDClient:
             authorization_response=current_url,
             access_type='offline'
         )
-        # Overwrite token file
-        with open(token_path, 'w') as f:
-            json.dump(self.token, f)
+        # Update credential file with new token
+        with open(self.credentials_path, 'r') as f:
+            bakery_credentials = json.load(f)
+            bakery_credentials['td']['tokens'] = self.token
+        with open(self.credentials_path, 'w') as f:
+            json.dump(bakery_credentials, f)
             
         return self.token
     
@@ -155,8 +147,98 @@ class TDClient:
             access_type='offline'
         )
         self.token = new_token
-        # Overwrite token file
-        with open(self.token_path, 'w') as f:
-            json.dump(self.token, f)
+        # Update credential file with new token
+        with open(self.credentials_path, 'r') as f:
+            bakery_credentials = json.load(f)
+            bakery_credentials['td']['tokens'] = self.token
+        with open(self.credentials_path, 'w') as f:
+            json.dump(bakery_credentials, f)
         
         return self.token
+
+    def get_prices(
+            self,
+            symbol,
+            period_type='year',
+            period=20,
+            frequency_type='daily',
+            frequency=1,
+            end_date=None,
+            start_date=None
+        ):
+        '''
+        
+        '''
+        # Set request parameters
+        if start_date:
+            params={
+                'periodType': period_type,
+                'frequencyType': frequency_type,
+                'frequency': frequency,
+                'endDate': end_date,
+                'startDate': start_date,
+                'needExtendedHoursData': 'false'
+            }
+        else: 
+            params={
+                'periodType': period_type,
+                'period': period,
+                'frequencyType': frequency_type,
+                'frequency': frequency,
+                'needExtendedHoursData': 'false'
+            }
+        # Get new access token if expired
+        if time.time() > self.token['expires_at']:
+            self.refresh_tokens()
+        
+        # Get authentication object
+        td_auth = self.get_auth()
+
+        # Replace forward slashes with periods
+        symbol = symbol.replace('/', '.')
+        # Send get request
+        r = requests.get(
+                f'https://api.tdameritrade.com/v1/marketdata/{symbol}/pricehistory',
+                auth=td_auth,
+                params=params
+            )
+
+        # Return response
+        return r.json()
+
+    def get_quotes(self, symbols):
+        '''
+        
+        '''
+        # Get new access token if expired
+        if time.time() > self.token['expires_at']:
+            self.refresh_tokens()
+            td_auth = self.get_auth()
+
+        # Convert list of symbols into a comma separated string
+        symbols = [symbol.replace('/', '.') for symbol in symbols]
+        symbols_str = ','.join(symbols)
+
+        params = {
+            'symbol': symbols_str
+        }
+
+        # Get new access token if expired
+        if time.time() > self.token['expires_at']:
+            self.refresh_tokens()
+        
+        # Get authentication object
+        td_auth = self.get_auth()
+
+        r = requests.get(
+            'https://api.tdameritrade.com/v1/marketdata/quotes',
+            auth=td_auth,
+            params=params
+        )
+
+        return r.json()
+
+
+
+
+

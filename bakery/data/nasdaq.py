@@ -1,19 +1,19 @@
 import pandas as pd
+from datetime import datetime
+import time
+import glob
+import os
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
 from selenium.webdriver.common.by import By
-import time
-import glob
-import os
 from cassandra.cluster import Cluster
-from tqdm import tqdm
 
-def main():
-    
+def update_symbols():
     # Navigate to nasdaq website and download stock table
     options=Options()
     options.set_preference('browser.helperApps.neverAsk.saveToDisk', 'text/csv')
+    options.headless = True
     driver = webdriver.Firefox(options=options)
     driver.get('https://www.nasdaq.com/market-activity/stocks/screener')
     btn = driver.find_element(
@@ -36,10 +36,16 @@ def main():
     df['Name'] = df['Name'].str.replace('\'', '', regex=False)
     df['Last Sale'] = df['Last Sale'].str.replace('$', '', regex=False).astype(float)
     df['% Change'] = df['% Change'].str.replace('%', '', regex=False).astype(float)
-    df['IPO Year'] = df['IPO Year'].astype('Int64').fillna(0)
+    df['Market Cap'] = df['Market Cap'].astype('Int64').fillna(0)
+    df['IPO Year'] = df['IPO Year'].astype('Int32').fillna(0)
     df['Country'] = df['Country'].fillna('NaN')
     df['Sector'] = df['Sector'].fillna('NaN')
     df['Industry'] = df['Industry'].fillna('NaN')
+
+    # Add updated datetime column
+    df['Updated'] = datetime.today().strftime('%Y-%m-%d')
+
+    print(df[['Net Change', 'Market Cap']].head(11))
        
     # Delete .csv from Downloads folder
     os.remove(file_path)
@@ -52,7 +58,7 @@ def main():
         truncate bakery.symbols;
         '''
     )
-    for _, row in tqdm(df.iterrows(), total=df.shape[0]):
+    for _, row in df.iterrows():
         values = (
             row['Symbol'],
             row['Name'],
@@ -64,23 +70,15 @@ def main():
             row['IPO Year'],
             row['Volume'],
             row['Sector'],
-            row['Industry']
+            row['Industry'],
+            row['Updated']
         )
         cass_session.execute(
             f'''
             INSERT INTO 
                 bakery.symbols (symbol, name, last_sale, net_change, 
                 percent_change, market_cap, country, ipo_year, volume, 
-                sector, industry)
+                sector, industry, updated)
             VALUES {values}
             '''
         )
-    
-    # Write compressed csv to storage
-    df.to_csv(
-        '/media/nvme2/bakery/nasdaq/{}.gz'.format(file_path[37:]),
-        compression='gzip'
-    )
-
-if __name__ == '__main__':
-    main()

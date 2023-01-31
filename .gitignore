@@ -2,3 +2,4 @@
 __pycache__/
 
 bakery/creds.json
+bakery/data/geckodriver.log
