@@ -1,0 +1,7 @@
+ipykernel
+ipywidgets
+requests
+pandas
+pymongo
+selenium
+tqdm
