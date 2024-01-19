@@ -1,5 +1,7 @@
 .ipynb_checkpoints
 __pycache__/
+.venv
 
 bakery/creds.json
 bakery/data/geckodriver.log
+bakery/data/secrets.json
