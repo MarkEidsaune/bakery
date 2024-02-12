@@ -44,9 +44,11 @@ class Alpha():
             r = requests.get(self.endpoint, params)
             r_dict = r.json()["Time Series (Daily)"]
         except requests.exceptions.RequestException as re:
-            print(f"Request error for symbol {symbol}\n{re}")
+            print(f"Request error for symbol {symbol}")
+            r_dict = None
         except KeyError as ke:
-            print(f"Key error for symbol {symbol}\n{ke}\nAvailable keys: {r.json().keys()}, likely caused by rate limiting.")
+            print(f"Key error for symbol {symbol}")
+            r_dict = None
         return r_dict
     
     def extract_hourly(self, symbol, year, month):
@@ -66,9 +68,11 @@ class Alpha():
             r = requests.get(self.endpoint, params)
             r_dict = r.json()["Time Series (60min)"]
         except requests.exceptions.RequestException as re:
-            print(f"Request error for symbol {symbol} and year-month {year_month}\n{re}")
+            print(f"Request error for symbol {symbol} and year-month {year}-{month:02}\n{re}")
+            r_dict = None
         except KeyError as ke:
-            print(f"Key error for symbol {symbol} and year-month {year_month}\n{ke}\nAvailable keys: {r.json().keys()}, likely caused by rate limiting.")
+            print(f"Key error for symbol {symbol} and year-month {year}-{month:02}\n{ke}\nAvailable keys: {r.json().keys()}, likely caused by rate limiting.")
+            r_dict = None
         return r_dict
     
     @staticmethod
@@ -142,57 +146,71 @@ class Alpha():
         """
         r = self.extract_active_list()
         df = self.transform_active_list(r)
+        if df.shape[0] > 0: # Truncate collection
+            coll = self.client["bakery"]["alpha_active_list"]
+            coll.delete_many({})
         result = self.load_dataframe(df, "alpha_active_list")
         return result
+    
+    def get_active_list_symbols(self):
+        """
+        
+        """
+        coll = self.client["bakery"]["alpha_active_list"]
+        symbols = [s["symbol"] for s in list(coll.find({}, {"symbol": 1, "_id": 0}))]
+        return symbols
     
     def etl_daily(self, symbols):
         """ 
         
         """
+        missed_symbols = []
         total_requests = 0
         t0 = time.time()
-        t = tqdm(symbols, position=0, desc="Symbols", leave=True)
+        t = tqdm(symbols, position=0, desc="Symbols", leave=False)
         for symbol in t:
-            result = self.load_dataframe(
-                self.transform_daily(
-                    symbol,
-                    self.extract_daily(symbol)
-                    ),
-                "alpha_daily"
-                )
+            r = self.extract_daily(symbol)
+            if r:
+                df = self.transform_daily(symbol, r)
+                result = self.load_dataframe(df, "alpha_daily")
+            else:
+                missed_symbols.append(symbol)
             total_requests += 1
             total_seconds = time.time() - t0
             requests_per_minute = total_requests / (total_seconds / 60)
             t.set_description(f"Symbols (req / s: {requests_per_minute:.2f})")
             t.refresh()
-            while (requests_per_minute > self.limit):
+            while (requests_per_minute > self.limit - 2):
                 time.sleep(1)
                 total_seconds = time.time() - t0
                 requests_per_minute = total_requests / (total_seconds / 60)
+        return missed_symbols
+    
     
     def etl_hourly(self, symbols, years, months):
         """
         
         """
+        missed_symbols = []
         total_requests = 0
         t0 = time.time()
-        for symbol in tqdm(symbols, position=0, desc="Symbols", leave=True):
+        for symbol in tqdm(symbols, position=0, desc="Symbols", leave=False):
             for year in tqdm(years, position=1, desc="Years", leave=False):
                 t3 = tqdm(months, position=2, desc="Months", leave=False)
                 for month in t3:
-                    result = self.load_dataframe(
-                        self.transform_hourly(
-                            symbol, 
-                            self.extract_hourly(symbol, year, month)
-                            ),
-                        "alpha_hourly"
-                        )
+                    r = self.extract_hourly(symbol, year, month)
+                    if r:
+                        df = self.transform_hourly(symbol, r)
+                        _ = self.load_dataframe(df, "alpha_hourly")
+                    else:
+                        missed_symbols.append(symbol)
                     total_requests += 1
                     total_seconds = time.time() - t0
                     requests_per_minute = total_requests / (total_seconds / 60)
                     t3.set_description(f"Months (req / s: {requests_per_minute:.2f})")
                     t3.refresh()
-                    while (requests_per_minute > self.limit):
+                    while (requests_per_minute > self.limit - 2):
                         time.sleep(1)
                         total_seconds = time.time() - t0
                         requests_per_minute = total_requests / (total_seconds / 60)
+        return missed_symbols
