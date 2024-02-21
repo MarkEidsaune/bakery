@@ -6,7 +6,35 @@ from datetime import datetime, timedelta
 import streamlit as st
 from bokeh.plotting import ColumnDataSource, figure 
 from bokeh.models import BooleanFilter, CDSView, ColumnDataSource, HoverTool
-from bokeh.palettes import Category20
+
+st.set_page_config(
+    page_icon=":moneybag:",
+)
+st.write("# Equities :moneybag:")
+symbol = st.text_input("Symbol", placeholder="Enter Symbol...", value="ANF")
+
+# Get date range
+default_end = datetime.now()
+default_start = default_end - timedelta(weeks=52)
+min_dt = datetime(2010, 1, 1)
+date1 = st.date_input(
+    label="Start Date",
+    value=default_start,
+    min_value=min_dt,
+    max_value=default_end,
+    format="YYYY/MM/DD",
+    disabled=False,
+    label_visibility="visible"
+)
+date2 = st.date_input(
+    label="End Date",
+    value=default_end,
+    min_value=min_dt,
+    max_value=default_end,
+    format="YYYY/MM/DD",
+    disabled=False,
+    label_visibility="visible"
+)
 
 # Init MongoDB
 path = os.path.join(os.path.expanduser('~'), "git/bakery/bakery/data/config.json")
@@ -14,37 +42,17 @@ with open(path, "rb") as f:
     config = json.loads(f.read().decode())
 client = MongoClient(config["mongo"]["conn_str"])
 db = client["bakery"]
-coll = db["alpha_daily"]
-
-# Set up sidebar
-with st.sidebar:
-    # Get symbol
-    symbol = st.text_input("Symbol", placeholder="Enter Symbol...")
-
-    # Get date range
-    default_end = datetime.now()
-    default_start = default_end - timedelta(weeks=10)
-    dates = st.date_input(
-        label="Date Range",
-        value=(default_start, default_end),
-        max_value=default_end,
-        format="MM/DD/YYYY",
-    )
+alpha_daily_coll = db["alpha_daily"]
 
 # Convert dates to datetimes (for mongo)
-range_start = datetime.combine(dates[0], datetime.min.time())
-try:
-    range_end = datetime.combine(dates[1], datetime.min.time())
-except IndexError as e:
-    st.write("Only recieved start date.  Setting end date to today's date")
-    range_end = default_end
-
+range_start = datetime.combine(date1, datetime.min.time())
+range_end = datetime.combine(date2, datetime.min.time())
 
 # Get data
 symbol_query = {"symbol": symbol, "dttm": {"$gte": range_start, "$lte": range_end}}
 fields_query = {"_id": 0, "split_coef": 0, "div_amt": 0}
 try:
-    df = pd.DataFrame(list(coll.find(symbol_query, fields_query)))
+    df = pd.DataFrame(list(alpha_daily_coll.find(symbol_query, fields_query)))
     # Clean data
     df.rename(columns={"dttm": "Date", "symbol": "Symbol", "open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"}, inplace=True)
     df["Date"] = df["Date"].dt.date
@@ -77,4 +85,3 @@ try:
     st.bokeh_chart(p, use_container_width=True)
 except KeyError as e:
     st.write("Empty response from database. Make sure you entered the symbol correctly.")
-

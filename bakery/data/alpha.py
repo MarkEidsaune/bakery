@@ -19,6 +19,8 @@ class Alpha():
             self.endpoint = config["alpha"]["endpoint"]
             self.client = MongoClient(config["mongo"]["conn_str"])
 
+    
+
     def extract_active_list(self):
         """ 
         
